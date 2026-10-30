@@ -1,441 +1,302 @@
 # AI Personal Study Planner Agent
 
-A complete, working college-study planner built with **Python, Streamlit, SQLite, and the Google Gemini API**. You write an instruction in normal English; the agent extracts study tasks, proposes a plan, calls validated Python tools, and saves tasks only after you confirm them.
+An AI-assisted study planner with validated tools, editable proposals, and honest fallback behavior.
+
+This repository contains two implementations:
+
+- **`web/` — deployable Next.js 16 web app (primary).** Browser-local task storage, Gemini function calling, approval-gated changes, and a deterministic offline fallback.
+- **Root — original Python/Streamlit app (preserved).** SQLite persistence and the same study-planning workflow for local desktop use.
 
 Example instruction:
 
 > Tomorrow I want to study DSA for two hours, revise probability, and finish my AI lab assignment.
 
-The agent turns that into three editable proposals:
-
-| Task | Subject | Duration | Planned date | Deadline |
-|---|---|---|---|---|
-| Study DSA | DSA | 120 min | tomorrow | not set |
-| Revise probability | Probability | not provided | tomorrow | not set |
-| Finish AI lab assignment | AI Lab | not provided | tomorrow | not set |
-
-It does **not** invent a deadline or pretend that an unstated duration was provided.
+The agent can turn that into editable proposals without inventing a deadline or an unstated duration.
 
 ---
 
-## Features
+## Web app
 
-- **AI chat agent** with Gemini native function calling and a clearly labelled offline fallback.
-- **Validated tool layer** for adding, listing, completing, planning, and deleting tasks.
-- **Confirmation before saving**: the AI proposes tasks; SQLite is written only after you review and confirm.
-- **Editable proposals** using Streamlit's data editor.
-- **SQLite persistence** that survives refreshes and restarts.
-- **Task dashboard** with real counts, completion percentage, today's tasks, and upcoming deadlines.
-- **My Tasks page** with manual add, status/subject filters, title search, complete buttons, and confirmed deletion.
-- **Study Plan page** with priority/deadline ordering, time blocks, and honest handling of unknown durations.
-- **Settings page** with provider status, a real Gemini connection test, `.env` reload, and privacy notes.
-- **Automated tests** for validation, persistence, tool dispatch, fallback parsing, and mocked Gemini function calling.
+### Features
 
----
+- Dashboard with real task counts, completion rate, today's schedule, and upcoming deadlines.
+- AI agent using Gemini native function calling through a server-side API route.
+- Strict tool allowlist and Zod validation for every tool name and argument.
+- Editable task proposals before saving.
+- Approval-gated completion and deletion.
+- Task CRUD, filters, title search, completion/reopen, and confirmed deletion.
+- Deterministic time-blocked study plans with suggested/partial estimates clearly labelled.
+- Activity history stored in the browser.
+- Browser-local persistence that survives refreshes.
+- Clearly labelled local fallback when no key is configured or Gemini is unavailable.
+- Settings page with provider status, a real connection test, and setup instructions.
+- No external database, authentication, or server-side task storage.
 
-## Tech stack
+### Requirements
 
-| Layer | Technology |
-|---|---|
-| UI | Streamlit |
-| AI | Google Gemini via the official `google-genai` Python SDK |
-| Storage | SQLite (standard library `sqlite3`) |
-| Configuration | `python-dotenv` |
-| Tests | `pytest` |
+- Node.js **20.9 or newer** (verified with Node 24.21.0)
+- npm (verified with npm 11.19.0)
+- Optional: a Google Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
 
-This project was built and tested on **Windows with Python 3.14.7**. It uses no Python 3.14-only syntax and is intended to work on Python 3.11+.
-
----
-
-## Project structure
-
-```text
-ai-study-planner-agent/
-├── app.py                     # Streamlit UI and all five pages
-├── services/
-│   ├── __init__.py
-│   ├── ai_agent.py            # Gemini function-calling loop + local fallback
-│   ├── database.py            # SQLite schema, validation, persistence
-│   ├── study_planner.py       # Deterministic time-block planner
-│   └── task_tools.py          # Tool schemas, allowlist, strict dispatch
-├── tests/
-│   ├── __init__.py
-│   ├── test_ai_agent.py       # Mocked AI requests, fallback, security tests
-│   ├── test_database.py       # CRUD, invalid inputs, persistence
-│   ├── test_study_planner.py  # Ordering, time windows, honest estimates
-│   └── test_task_tools.py     # Tool validation and allowlist tests
-├── .streamlit/
-│   └── config.toml            # Light theme
-├── data/
-│   └── .gitkeep               # SQLite file is created here automatically
-├── .env.example               # Placeholder values only
-├── .gitignore
-├── pytest.ini
-├── requirements.txt
-└── README.md
-```
-
-The public tool functions required by the assignment are implemented in `services/task_tools.py`:
-
-```python
-add_task(title, subject, due_date, priority, estimated_minutes)
-list_tasks(status)
-mark_task_completed(task_id)
-get_study_plan(date)
-delete_task(task_id)   # requires explicit confirmation
-```
-
-An optional `planned_date` is also supported. It distinguishes "I want to study tomorrow" (a study day) from "the assignment is due tomorrow" (a deadline). This prevents false deadlines.
-
----
-
-## Architecture
-
-```text
-Streamlit UI
-   |
-   v
-AIStudyAgent (services/ai_agent.py)
-   |-------------------- Gemini API (google-genai)
-   |                         |
-   |                         v
-   |                    function call request
-   |                         |
-   v                         v
-TaskToolbox allowlist (services/task_tools.py)
-   |-- propose_tasks      -> validate only, never saves
-   |-- list_tasks         -> read SQLite
-   |-- mark_task_completed-> update SQLite
-   |-- get_study_plan     -> read tasks + build plan
-   |
-   |  UI confirmation only
-   v
-add_task / delete_task -> SQLite
-```
-
-### AI provider decision
-
-- Provider: **Google Gemini Developer API**.
-- Default model: **`gemini-3.8-flash`**.
-- SDK: **`google-genai`**.
-- Interface: `client.models.generate_content(...)` with native `FunctionDeclaration` tools.
-
-Official documentation was checked on **2026-10-29**:
-
-- Gemini 3.8 Flash model page: <https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash>
-- Function calling: <https://ai.google.dev/gemini-api/docs/function-calling>
-- Pricing / free tier: <https://ai.google.dev/gemini-api/docs/pricing>
-- Rate limits: <https://ai.google.dev/gemini-api/docs/rate-limits>
-
-At that time, Google's documentation listed `gemini-3.8-flash` as a stable model that supports function calling, and the standard interactive tier was listed as free of charge. **The free tier is limited and can change.** Google does not guarantee fixed free quotas; limits are applied per project and can be viewed in Google AI Studio. Free-tier content may be used to improve Google products. This project does not promise unlimited free usage.
-
-If your key cannot access the default model, set another model available in your project:
-
-```dotenv
-GEMINI_MODEL=gemini-3.5-flash-lite
-```
-
-Only use a model that your own AI Studio project lists as available.
-
-### Why the AI cannot add or delete directly
-
-The model only sees these four tools:
-
-1. `propose_tasks`
-2. `list_tasks`
-3. `mark_task_completed`
-4. `get_study_plan`
-
-`add_task` runs in trusted Python **after** the user clicks **Save confirmed tasks**. `delete_task` runs only after a confirmation checkbox in **My Tasks**. This satisfies the assignment's security and confirmation requirements. The UI shows the actual tool name, arguments, and returned result; the app never claims a tool ran unless it really did.
-
-### Local fallback
-
-If no API key is configured, or Gemini is unavailable/rate-limited, the app uses a deterministic local rule parser. It is clearly labelled **LOCAL FALLBACK**. It can:
-
-- add/propose tasks from common instruction patterns,
-- list pending/completed tasks,
-- mark a task completed,
-- build a simple study plan from saved tasks.
-
-It is intentionally simple and does not understand every sentence. It is not presented as an AI response.
-
----
-
-## Windows setup (PowerShell)
-
-Open PowerShell and go to the project folder:
+### Windows setup (PowerShell)
 
 ```powershell
-cd "D:\AI AGENT\ai-study-planner-agent"
+cd "D:\AI AGENT\ai-study-planner-agent\web"
+npm install
+Copy-Item .env.example .env.local
+notepad .env.local
 ```
 
-### 1. Create and activate a virtual environment
-
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-If PowerShell blocks activation, allow it for the current process:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-```
-
-### 2. Install dependencies
-
-```powershell
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-### 3. Configure the Gemini key
-
-```powershell
-Copy-Item .env.example .env
-notepad .env
-```
-
-Replace the placeholder:
+Set the key in `web/.env.local`:
 
 ```dotenv
 GEMINI_API_KEY=your_real_key_here
 GEMINI_MODEL=gemini-3.8-flash
 ```
 
-Get a key from Google AI Studio: <https://aistudio.google.com/app/apikey>
+`GEMINI_MODEL` is optional. The key must stay server-side: do **not** add a `NEXT_PUBLIC_` prefix and do not commit `.env.local`.
 
-Never commit `.env`. It is already listed in `.gitignore`.
-
-### 4. Run the app
+Start the development server:
 
 ```powershell
-streamlit run app.py
+npm run dev
 ```
 
-Open the URL Streamlit prints, usually <http://localhost:8501>.
+Open <http://localhost:3000>.
 
-### If activation is blocked or unnecessary
+The app remains usable without a key: manual tasks, filters, planning, and the clearly labelled local agent fallback all work. The connection test will report that no key is configured.
 
-You can run everything without activating the environment:
+### Production build
 
 ```powershell
-py -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-Copy-Item .env.example .env
-.\.venv\Scripts\python.exe -m streamlit run app.py
+cd "D:\AI AGENT\ai-study-planner-agent\web"
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+npm run start
 ```
 
-This is the recommended fallback if `Activate.ps1` is restricted by your college machine.
+Verified in this workspace:
+
+```text
+TypeScript: passed
+ESLint:     passed
+Vitest:     6 files, 69 tests passed
+Next build: passed
+```
+
+Automated tests mock Gemini requests. They require no API key and no internet access.
+
+### Deploy to Vercel
+
+1. Import the GitHub repository in Vercel.
+2. Set **Root Directory** to `web`.
+3. Framework preset: **Next.js**.
+4. Build command: `npm run build`.
+5. Add environment variables under Project Settings:
+   - `GEMINI_API_KEY` (required for live Gemini responses)
+   - `GEMINI_MODEL` (optional)
+6. Deploy or redeploy.
+
+No database or storage integration is required. Tasks are browser-local, so they do not sync between users or devices.
+
+### Web architecture
+
+```text
+Browser (React)
+  |-- localStorage: tasks, history, model preference
+  |-- POST /api/agent
+          |
+          v
+Next.js server route
+  |-- reads GEMINI_API_KEY (never sent to the browser)
+  |-- calls Gemini generateContent with native function declarations
+  |-- validates tool name and arguments against a strict allowlist
+  |-- executes read-only tools against the supplied task snapshot
+  |-- returns proposals and confirmation-required actions
+          |
+          v
+Browser applies approved mutations to localStorage
+```
+
+The server does not add, complete, or delete tasks directly. The browser applies those changes only after the user approves them.
+
+### Agent tools
+
+| Tool | Behavior |
+|---|---|
+| `add_task` | Validates and returns a task proposal; does not save. |
+| `list_tasks` | Read-only lookup in the supplied browser task snapshot. |
+| `mark_task_completed` | Returns an approval action; does not mutate server data. |
+| `get_study_plan` | Read-only deterministic plan from the supplied tasks. |
+| `delete_task` | Returns a confirmation-required action; deletion happens only after UI confirmation. |
+
+Unknown tools, unexpected parameters, invalid dates, invalid durations, and missing task IDs are rejected.
+
+### Gemini configuration
+
+- Default model: `gemini-3.8-flash`
+- Supported-model allowlist: `gemini-3.8-flash`, `gemini-3.5-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro`
+- API: Gemini `generateContent` with native function calling
+- Model documentation: <https://ai.google.dev/gemini-api/docs/models>
+- Function calling documentation: <https://ai.google.dev/gemini-api/docs/function-calling>
+
+Model availability and free-tier quotas can change. Use a model that your own Google AI Studio project can access. If the default returns HTTP 404, choose another allowed model in Settings or set `GEMINI_MODEL` and redeploy/restart.
+
+Provider failures are reported honestly:
+
+- 401/403: invalid key or project access
+- 404: model unavailable
+- 429: rate limit
+- 5xx/network/timeout: temporary provider failure
+
+When Gemini fails, the app labels the response as local fallback rather than pretending it came from the LLM.
+
+### Browser-local data
+
+Storage keys:
+
+```text
+study-planner.tasks.v1
+study-planner.history.v1
+study-planner.settings.v1
+```
+
+Tasks, activity history, and the model preference stay in this browser. They survive refreshes but do not sync across browsers or devices. Clearing browser site data removes them.
+
+### Web security notes
+
+- The API key is read only from the server environment.
+- The key is never returned to the browser, written to localStorage, or included in provider errors (it is redacted if it appears).
+- The agent cannot run shell commands, `eval`, or arbitrary code.
+- Tool arguments are validated with strict schemas.
+- Deletion requires explicit UI confirmation.
+- The app never claims a tool ran unless the corresponding change actually happened.
+- Chat messages are not persisted; only task changes and activity history are stored locally.
+
+### Web project structure
+
+```text
+web/
+  app/
+    api/agent/route.ts        Gemini agent endpoint
+    api/agent/test/route.ts   Real connection test
+    api/status/route.ts       Provider status (no key returned)
+    agent/page.tsx            Chat and approval UI
+    tasks/page.tsx            Task CRUD and filters
+    plan/page.tsx             Time-blocked study planner
+    history/page.tsx          Local activity history
+    settings/page.tsx         Provider, model, setup, privacy
+  components/                 Shared UI and forms
+  lib/
+    agent-tools.ts            Tool declarations and strict dispatch
+    agent-fallback.ts         Deterministic rule-based fallback
+    server/agent.ts           Gemini function-calling loop
+    server/gemini.ts          REST client and honest error mapping
+    tasks.ts                  Pure task CRUD and statistics
+    study-plan.ts             Deterministic planner
+    storage.ts                Validated localStorage access
+    use-task-store.tsx        React store and history recording
+  tests/                      Vitest unit tests
+  .env.example                Placeholders only
+```
+
+### Web troubleshooting
+
+**`npm run dev` opens but the agent says no key is configured**
+
+Create `web/.env.local` from `.env.example`, add `GEMINI_API_KEY`, and restart `npm run dev`. Check provider status in Settings.
+
+**HTTP 429 or rate limit**
+
+Free-tier limits are not guaranteed. Wait and retry, reduce usage, or check quota in Google AI Studio. The local fallback remains available.
+
+**HTTP 404 or model unavailable**
+
+Set `GEMINI_MODEL` to a model available in your project and restart/redeploy. The Settings page lists the current server allowlist.
+
+**Tasks disappeared**
+
+Tasks are tied to this browser profile and origin. Clearing site data, changing browsers, or changing the deployed domain can make existing local data unavailable.
+
+**`unrs-resolver` install-script warning**
+
+npm may warn that `unrs-resolver` has an unapproved postinstall script. The install still completes; this workspace built and tested successfully with the warning present.
 
 ---
 
-## Run the tests
+## Original Python/Streamlit app
+
+The original local app remains at the repository root and is unchanged.
+
+### Features
+
+- Streamlit UI with a dashboard, AI agent, tasks, study plan, and settings.
+- Gemini native function calling through the `google-genai` SDK.
+- Strict Python tool allowlist and validation.
+- Editable proposals saved only after confirmation.
+- SQLite persistence in `data/study_planner.db`.
+- Deterministic planner and clearly labelled local fallback.
+- Pytest coverage for validation, persistence, tools, planner, and mocked AI requests.
+
+### Quick start
+
+```powershell
+cd "D:\AI AGENT\ai-study-planner-agent"
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+notepad .env
+streamlit run app.py
+```
+
+If activation is blocked:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+Or run without activation:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m streamlit run app.py
+```
+
+### Python tests
 
 ```powershell
 python -m pytest -q
 ```
 
-Without activation:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-```
-
-Latest verified result in this workspace:
-
-```text
-..................................................                       [100%]
-50 passed
-```
-
-Tests mock all Gemini requests. They require **no API key and no internet access**.
-
-Useful checks:
-
-```powershell
-python -m compileall app.py services tests
-python -c "import app; print('app imports successfully')"
-```
-
----
-
-## How to use the app
-
-### Dashboard
-
-- Shows real task counts from SQLite.
-- Displays today's planned/due tasks and the next 7 days of deadlines.
-- Completion progress is `completed / total` saved records.
-- Quick links navigate to the agent, manual add, and study plan pages.
-
-### AI Agent
-
-1. Type an instruction such as the example above.
-2. The progress panel shows when the agent is working.
-3. Read the response and expand **Tool activity** to see the actual tool call and result.
-4. Edit the proposed rows if needed.
-5. Click **Save confirmed tasks**.
-6. The saved tasks appear on the dashboard and My Tasks page.
-
-Commands that operate on existing data run immediately:
-
-- "Show my pending tasks"
-- "Mark task 3 complete"
-- "Make a study plan for tomorrow"
-
-Deletion from chat is intentionally refused. Use **My Tasks -> Delete -> confirm checkbox**.
-
-### My Tasks
-
-- Add a task with optional due date and planned study date.
-- Filter by status and subject, or search the title.
-- Mark a task complete.
-- Delete only after checking the confirmation box.
-
-### Study Plan
-
-- Choose a date, available minutes, and start hour.
-- Click **Generate plan**.
-- The planner orders tasks by overdue status, due date, priority, and planned date.
-- If a task has no duration, a 30-minute block is explicitly labelled **suggested**.
-- If a task is longer than the remaining window, the block is labelled **partial**.
-- Unscheduled tasks are listed separately.
-
-### Settings
-
-- See whether Gemini is configured and which model is used.
-- Test the live Gemini connection.
-- Reload `.env` after editing it.
-- Review storage, privacy, and security details.
-- Clear session chat history.
-
----
-
-## Data model
-
-`data/study_planner.db` is created automatically.
-
-```sql
-CREATE TABLE tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    due_date TEXT,              -- YYYY-MM-DD or NULL
-    planned_date TEXT,          -- YYYY-MM-DD or NULL
-    priority TEXT NOT NULL,     -- Low, Medium, High
-    estimated_minutes INTEGER,  -- 5..1440 or NULL
-    status TEXT NOT NULL,       -- pending, completed
-    created_at TEXT NOT NULL,
-    completed_at TEXT
-);
-```
-
-Validation covers:
-
-- non-empty titles and subjects with length limits,
-- real ISO dates (rejects `2026-02-30`),
-- priorities limited to Low/Medium/High,
-- durations limited to whole minutes from 5 to 1440,
-- positive numeric task IDs,
-- statuses limited to pending/completed/all,
-- unexpected tool parameters rejected.
-
-SQL is parameterized, so task text cannot inject SQL.
-
----
-
-## Security notes
-
-- Strict tool allowlist; unknown tools are rejected.
-- No `eval`, `exec`, shell commands, arbitrary file access, or AI-generated Python execution.
-- The AI cannot add or delete records directly.
-- Delete requires a separate explicit confirmation.
-- API key is read from the server environment only.
-- The key is never rendered in the UI, written to SQLite, or included in provider error messages (it is redacted if it appears).
-- Only task records are stored. Chat messages remain in the Streamlit session.
-- Secrets are excluded by `.gitignore`.
-
-The local fallback also runs through the same validation and dispatch layer. It cannot bypass the allowlist.
-
----
-
-## Troubleshooting
-
-### `streamlit` is not recognized
-
-The virtual environment is not active. Use:
-
-```powershell
-.\.venv\Scripts\python.exe -m streamlit run app.py
-```
-
-### `Activate.ps1 cannot be loaded`
-
-Use the process-only execution policy command shown above, or skip activation and call `.venv\Scripts\python.exe` directly.
-
-### `ModuleNotFoundError: No module named 'services'`
-
-Run Streamlit from the project folder:
-
-```powershell
-cd "D:\AI AGENT\ai-study-planner-agent"
-streamlit run app.py
-```
-
-### Gemini says the API key is invalid (401/403)
-
-- Check that `.env` contains the real key with no quotes or extra spaces.
-- Click **Reload .env** in Settings.
-- Confirm the key is from the correct Google AI Studio project.
-- Restart Streamlit after changing `.env` if needed.
-
-### HTTP 429 / rate limit
-
-Free-tier quotas are limited and not guaranteed. Wait and retry, reduce request frequency, or check your quota in Google AI Studio. The app automatically switches to the labelled local fallback rather than inventing an AI answer.
-
-### The model is unavailable (404)
-
-Your key/project may not have access to the default model. Set `GEMINI_MODEL` in `.env` to a model listed for your project, click **Reload .env**, then test again.
-
-### The app shows LOCAL FALLBACK
-
-No key is configured, or Gemini failed. This is deliberate and honest. Add a key in `.env`, reload, and use **Test Gemini connection**. The app remains usable offline.
-
-### Database is locked
-
-Close other copies of the app or SQLite browser tools. The app uses a 15-second connection timeout and short-lived connections. If needed, delete `data/study_planner.db` to reset (this deletes saved tasks).
-
-### PowerShell shows a non-terminating error from `pip`
-
-Check `$LASTEXITCODE`; warnings from pip can appear on stderr without meaning installation failed. Re-run `python -m pip install -r requirements.txt` and verify imports with `python -c "import streamlit, google.genai; print('ok')"`.
+The Python app is intended for local single-user use. It has no login or multi-user separation.
 
 ---
 
 ## Limitations
 
-- The local fallback uses regular expressions and handles common study instructions, not unrestricted natural language.
-- The planner is deterministic and does not solve a full scheduling optimization problem; it orders by urgency/priority and fills the chosen time window.
-- Study sessions are not stored as a separate schedule. Plans are recomputed from saved tasks, planned dates, and due dates.
-- There is no login or multi-user separation. It is a single-student local app.
-- Deleting the SQLite file deletes all saved tasks.
-- Gemini availability, model names, free-tier quotas, and data-use terms can change. Re-check Google's official documentation before relying on them for a graded deployment.
-- The app does not include calendar sync, notifications, or cloud deployment configuration.
-
----
+- The web app stores data only in the current browser; there is no account, cloud sync, or shared database.
+- The fallback parser handles common study instructions, not unrestricted natural language.
+- The planner is deterministic, not an optimization solver.
+- Gemini model availability, quotas, and data-use terms can change. Re-check Google's official documentation before relying on them for a graded deployment.
+- No calendar sync, notifications, or multi-user access is included.
+- The web app is a demonstration, not an enterprise-secure multi-tenant service.
 
 ## Assignment checklist
 
 - [x] Chat interface with progress and errors
 - [x] Natural-language task extraction
-- [x] Editable proposed plan before saving
+- [x] Editable proposals before saving
 - [x] Real `add_task`, `list_tasks`, `mark_task_completed`, `get_study_plan`, `delete_task`
 - [x] Gemini native function calling with strict allowlist and validation
 - [x] Local fallback without an API key
-- [x] SQLite persistence and automatic schema creation
+- [x] Browser-local persistence across refreshes
 - [x] Dashboard with real statistics and empty states
-- [x] Manual add, filters, complete buttons, confirmed delete
+- [x] Manual add, filters, complete/reopen, and confirmed delete
 - [x] No fabricated AI calls or fake statistics
-- [x] Tests with mocked AI requests
-- [x] Windows setup and troubleshooting documentation
+- [x] Unit tests with mocked Gemini requests
+- [x] Windows setup, Vercel deployment, and troubleshooting documentation
